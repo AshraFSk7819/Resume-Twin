@@ -1,0 +1,136 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#101116">
+    <title>Resume Twin — Personal AI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <a class="brand" href="#" aria-label="Resume Twin">
+            Resume<span class="brand-accent">Twin</span>
+        </a>
+
+        <button id="newChatBtn" class="new-chat-btn" type="button">
+            <span class="plus">+</span> New chat
+        </button>
+
+        <div class="sidebar-label">YOUR CHATS</div>
+        <nav id="sessionList" class="session-list" aria-label="Chat sessions"></nav>
+
+        <div class="sidebar-spacer"></div>
+
+        <input type="file" id="resumeFile" accept=".pdf,application/pdf" hidden>
+
+        <p id="uploadStatus" class="status upload-status" role="status"></p>
+
+        <section class="profile-card">
+            <div class="section-heading">
+                <span>PROFILE</span>
+                <span id="profileBadge" class="badge">Not loaded</span>
+            </div>
+            <div class="profile-person">
+                <div class="profile-person-text">
+                    <strong id="resumeName">Your profile</strong>
+                    <small id="profileSubtitle">Upload a resume to begin.</small>
+                </div>
+            </div>
+        </section>
+
+        <div class="sidebar-footer">
+            <span class="footer-dot"></span>
+            Your profile, ready to explore
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="topbar">
+            <div class="topbar-title">
+                <span class="eyebrow">PERSONAL AI WORKSPACE</span>
+                <h1 id="currentChatTitle">Resume Twin</h1>
+            </div>
+
+            <div class="topbar-actions">
+                <button id="chooseResumeBtn" class="upload-resume-btn" type="button">
+                    Upload PDF
+                </button>
+                <div class="connection-status">
+                    <span class="status-dot"></span>
+                    <span id="chatStatus">Connecting</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Initial PDF upload screen -->
+        <section id="onboarding" class="onboarding">
+            <div class="onboarding-glow"></div>
+
+            <div class="onboarding-content">
+                <div class="document-animation" aria-hidden="true">
+                    <div class="document-icon">
+                        <svg viewBox="0 0 48 48" fill="none">
+                            <path d="M12 5H28L38 15V41H12V5Z"
+                                  stroke="currentColor" stroke-width="1.8"
+                                  stroke-linejoin="round"/>
+                            <path d="M28 5V15H38"
+                                  stroke="currentColor" stroke-width="1.8"
+                                  stroke-linejoin="round"/>
+                            <path d="M18 23H32M18 29H32M18 35H27"
+                                  stroke="currentColor" stroke-width="1.8"
+                                  stroke-linecap="round"/>
+                        </svg>
+                        <span class="document-sparkle">✦</span>
+                    </div>
+                </div>
+
+                <p class="onboarding-eyebrow">YOUR PERSONAL AI WORKSPACE</p>
+                <h2>Meet your resume<br><span>twin.</span></h2>
+
+                <p class="onboarding-description">
+                    Your experience, skills, and projects — all ready to explore.
+                    Upload your resume and start a conversation with your personal AI.
+                </p>
+
+                <label class="drop-zone" id="dropZone" for="resumeFile">
+                    <span class="upload-icon">↑</span>
+                    <strong>Drop your resume here</strong>
+                    <span>PDF document · Maximum 10 MB</span>
+                    <span class="browse-button">Browse files</span>
+                </label>
+
+                <p class="onboarding-note">
+                    Your personal resume assistant, ready in seconds.
+                </p>
+                <p id="onboardingStatus" class="onboarding-status"
+                   role="status" aria-live="polite"></p>
+            </div>
+        </section>
+
+        <!-- Original welcome screen and chat messages -->
+        <section id="messages" class="messages is-hidden"
+                 aria-live="polite" aria-label="Chat messages"></section>
+
+        <footer id="composerArea" class="composer-area is-hidden">
+            <form id="chatForm" class="chat-form">
+                <textarea id="question"
+                          placeholder="Ask anything about your resume..."
+                          rows="1"
+                          aria-label="Your message"
+                          required></textarea>
+                <button type="submit" id="sendBtn" class="send-btn"
+                        aria-label="Send message"><span>↑</span></button>
+            </form>
+            <div class="composer-bottom">
+                <span>Enter to send · Shift + Enter for a new line</span>
+                <span>Resume Twin can make mistakes. Verify important details.</span>
+            </div>
+        </footer>
+    </main>
+</div>
+<script src="script.js"></script>
+</body>
+</html>
