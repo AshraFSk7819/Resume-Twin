@@ -1,5 +1,5 @@
 
-const API = "http://127.0.0.1:8000";
+const API = "https://resume-twin.onrender.com";
 const $ = id => document.getElementById(id);
 
 const onboarding = $("onboarding");
