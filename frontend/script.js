@@ -29,6 +29,9 @@ let activeSessionId = localStorage.getItem(ACTIVE_KEY) || null;
 let resumeUploaded = false;
 let busy = false;
 
+let healthCheckInProgress = false;
+let healthRetryTimer = null;
+
 function loadSessions() {
     try {
         const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
@@ -85,7 +88,7 @@ function scrollToBottom() {
     messages.scrollTop = messages.scrollHeight;
 }
 
-/* Original welcome screen, displayed after the PDF is processed. */
+/* Welcome screen and suggestion buttons. */
 function renderWelcome() {
     messages.replaceChildren();
 
@@ -154,11 +157,12 @@ function renderWelcome() {
             questionInput.value = button.dataset.question || "";
             questionInput.focus();
             questionInput.dispatchEvent(new Event("input"));
+            chatForm.requestSubmit();
         });
     });
 }
 
-/* Lightweight Markdown renderer with table support. */
+/* Markdown rendering with tables and code blocks. */
 function renderMarkdown(input) {
     const source = String(input ?? "").replace(/\r\n/g, "\n");
     const codeBlocks = [];
@@ -350,11 +354,7 @@ function addMessage(text, role, save = true) {
             session.updatedAt = Date.now();
 
             if (role === "user" && session.title === "New chat") {
-                session.title = text.length > 32
-                    ? text.slice(0, 32).trim() + "…"
-                    : text;
-
-                currentChatTitle.textContent = session.title;
+                session.title = text.slice(0, 32) || "New chat";
             }
 
             saveSessions();
@@ -366,124 +366,85 @@ function addMessage(text, role, save = true) {
 }
 
 function addTypingIndicator() {
-    const bubble = addMessage("", "assistant", false);
+    const row = document.createElement("div");
+    row.className = "message-row assistant";
 
-    bubble.innerHTML = `
-        <div class="typing-dots">
-            <span></span><span></span><span></span>
-        </div>
-    `;
+    const avatar = document.createElement("div");
+    avatar.className = "message-avatar";
+    avatar.textContent = "R";
 
+    const content = document.createElement("div");
+    content.className = "message-content";
+
+    const meta = document.createElement("div");
+    meta.className = "message-meta";
+    meta.textContent = "Resume Twin";
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble typing";
+    bubble.textContent = "Thinking…";
+
+    content.append(meta, bubble);
+    row.append(avatar, content);
+    messages.appendChild(row);
+
+    scrollToBottom();
     return bubble;
 }
 
 async function readResponse(response) {
-    let data;
-
-    try {
-        data = await response.json();
-    } catch {
-        throw new Error(`Server returned HTTP ${response.status}.`);
-    }
-
     if (!response.ok) {
-        throw new Error(data.detail || "The request failed.");
+        let message = `Request failed (${response.status}).`;
+
+        try {
+            const data = await response.json();
+            message = data.detail || data.message || message;
+        } catch {}
+
+        throw new Error(message);
     }
 
-    return data;
+    return response.json();
 }
 
 function renderSessionList() {
     sessionList.replaceChildren();
 
-    if (!sessions.length) {
-        const empty = document.createElement("p");
-        empty.className = "empty-sessions";
-        empty.textContent = "Your conversations will appear here.";
-        sessionList.appendChild(empty);
-        return;
-    }
-
-    [...sessions]
+    sessions
+        .slice()
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .forEach(session => {
-            const item = document.createElement("div");
-            item.className =
-                `session-item ${session.id === activeSessionId ? "active" : ""}`;
+            const button = document.createElement("button");
+            button.className = "session-item";
+            button.classList.toggle("active", session.id === activeSessionId);
+            button.textContent = session.title || "New chat";
+            button.title = session.title || "New chat";
 
-            const select = document.createElement("button");
-            select.type = "button";
-            select.className = "session-select";
-            select.innerHTML = `
-                <span class="session-icon">▤</span>
-                <span class="session-title"></span>
-            `;
-
-            select.querySelector(".session-title").textContent =
-                session.title || "New chat";
-
-            select.addEventListener("click", () => switchSession(session.id));
-
-            const remove = document.createElement("button");
-            remove.type = "button";
-            remove.className = "session-delete";
-            remove.textContent = "×";
-            remove.title = "Delete chat";
-            remove.setAttribute("aria-label", "Delete chat");
-
-            remove.addEventListener("click", event => {
-                event.stopPropagation();
-                deleteSession(session.id);
-            });
-
-            item.append(select, remove);
-            sessionList.appendChild(item);
+            button.addEventListener("click", () => switchSession(session.id));
+            sessionList.appendChild(button);
         });
 }
 
 function displaySession(session) {
     messages.replaceChildren();
-    currentChatTitle.textContent = session?.title || "New chat";
 
-    if (!session || !session.messages.length) {
+    if (!session.messages.length) {
         renderWelcome();
-        return;
+    } else {
+        session.messages.forEach(message => {
+            addMessage(message.content, message.role, false);
+        });
     }
 
-    for (const message of session.messages) {
-        const row = document.createElement("div");
-        row.className = `message-row ${message.role}`;
-
-        const avatar = document.createElement("div");
-        avatar.className = "message-avatar";
-        avatar.textContent = message.role === "user" ? "Y" : "R";
-
-        const content = document.createElement("div");
-        content.className = "message-content";
-
-        const meta = document.createElement("div");
-        meta.className = "message-meta";
-        meta.textContent = message.role === "user" ? "You" : "Resume Twin";
-
-        const bubble = document.createElement("div");
-        bubble.className = "message-bubble";
-
-        if (message.role === "assistant") {
-            bubble.innerHTML = renderMarkdown(message.content);
-        } else {
-            bubble.textContent = message.content;
-        }
-
-        content.append(meta, bubble);
-        row.append(avatar, content);
-        messages.appendChild(row);
+    if (currentChatTitle) {
+        currentChatTitle.textContent = session.title || "New chat";
     }
 
     scrollToBottom();
 }
 
 async function createSession() {
-    if (busy || !resumeUploaded) return;
+    if (busy) return;
 
     newChatBtn.disabled = true;
 
@@ -510,7 +471,8 @@ async function createSession() {
         displaySession(session);
         showChat();
     } catch (error) {
-        onboardingStatus.textContent = error.message;
+        onboardingStatus.textContent =
+            `Couldn't create a chat: ${error.message}`;
         onboardingStatus.className = "onboarding-status error";
     } finally {
         newChatBtn.disabled = false;
@@ -619,7 +581,6 @@ async function uploadResume(file) {
         resumeUploaded = true;
         setProfile(data.resume_info || {});
 
-        // The uploaded resume starts a fresh set of conversations.
         sessions = [];
         activeSessionId = null;
         localStorage.removeItem(STORAGE_KEY);
@@ -768,9 +729,11 @@ chatForm.addEventListener("submit", async event => {
         sendBtn.disabled = false;
         newChatBtn.disabled = false;
         chooseResumeBtn.disabled = false;
-        chatStatus.textContent = "Connected";
         questionInput.focus();
         renderSessionList();
+
+        // Verify that the backend is reachable again after a chat request.
+        checkBackend();
     }
 });
 
@@ -787,16 +750,59 @@ questionInput.addEventListener("input", () => {
         `${Math.min(questionInput.scrollHeight, 150)}px`;
 });
 
-async function initialize() {
-    renderSessionList();
-    showOnboarding();
+/* Wake Render as soon as the website opens and retry if unavailable. */
+async function checkBackend() {
+    if (healthCheckInProgress) return;
+
+    healthCheckInProgress = true;
+    setStatus(
+        chatStatus,
+        "Waking up server… this may take up to a minute."
+    );
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
 
     try {
-        const response = await fetch(`${API}/`);
-        chatStatus.textContent = response.ok ? "Connected" : "Offline";
-    } catch {
-        chatStatus.textContent = "Offline";
+        const response = await fetch(`${API}/`, {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
+        setStatus(chatStatus, "Connected", "success");
+
+        if (healthRetryTimer) {
+            clearTimeout(healthRetryTimer);
+            healthRetryTimer = null;
+        }
+    } catch (error) {
+        setStatus(
+            chatStatus,
+            "Server unavailable or waking up — retrying in 5 seconds…",
+            "error"
+        );
+
+        if (healthRetryTimer) clearTimeout(healthRetryTimer);
+
+        healthRetryTimer = setTimeout(() => {
+            healthRetryTimer = null;
+            checkBackend();
+        }, 5000);
+    } finally {
+        clearTimeout(timeout);
+        healthCheckInProgress = false;
     }
+}
+
+function initialize() {
+    renderSessionList();
+    showOnboarding();
+    checkBackend();
 }
 
 initialize();
