@@ -1,6 +1,5 @@
-
 const API = "https://resume-twin.onrender.com";
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 const onboarding = $("onboarding");
 const onboardingStatus = $("onboardingStatus");
@@ -25,34 +24,45 @@ const STORAGE_KEY = "resumeTwinSessionsV1";
 const ACTIVE_KEY = "resumeTwinActiveSessionV1";
 
 let sessions = loadSessions();
-let activeSessionId = localStorage.getItem(ACTIVE_KEY) || null;
+let activeSessionId = safeStorageGet(ACTIVE_KEY);
 let resumeUploaded = false;
 let busy = false;
-
 let healthCheckInProgress = false;
 let healthRetryTimer = null;
 
+function safeStorageGet(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
 function loadSessions() {
     try {
-        const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-        return Array.isArray(value) ? value : [];
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        return Array.isArray(data) ? data : [];
     } catch {
         return [];
     }
 }
 
 function saveSessions() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
 
-    if (activeSessionId) {
-        localStorage.setItem(ACTIVE_KEY, activeSessionId);
-    } else {
-        localStorage.removeItem(ACTIVE_KEY);
+        if (activeSessionId) {
+            localStorage.setItem(ACTIVE_KEY, activeSessionId);
+        } else {
+            localStorage.removeItem(ACTIVE_KEY);
+        }
+    } catch (error) {
+        console.warn("Could not save chat history:", error);
     }
 }
 
 function activeSession() {
-    return sessions.find(s => s.id === activeSessionId) || null;
+    return sessions.find(session => session.id === activeSessionId) || null;
 }
 
 function escapeHTML(value) {
@@ -67,8 +77,18 @@ function escapeHTML(value) {
 
 function setStatus(element, text, type = "") {
     if (!element) return;
+
     element.textContent = text;
-    element.className = `status ${type}`.trim();
+    element.dataset.state = type || "pending";
+
+    if (element.id === "chatStatus") {
+        const container = element.closest(".connection-status");
+
+        if (container) {
+            container.dataset.state = type || "pending";
+            container.setAttribute("aria-label", `Backend status: ${text}`);
+        }
+    }
 }
 
 function showOnboarding() {
@@ -81,14 +101,13 @@ function showChat() {
     onboarding.classList.add("is-hidden");
     messages.classList.remove("is-hidden");
     composerArea.classList.remove("is-hidden");
-    questionInput.focus();
 }
 
 function scrollToBottom() {
     messages.scrollTop = messages.scrollHeight;
 }
 
-/* Welcome screen and suggestion buttons. */
+/* Welcome screen */
 function renderWelcome() {
     messages.replaceChildren();
 
@@ -97,55 +116,32 @@ function renderWelcome() {
     welcome.id = "welcome";
 
     welcome.innerHTML = `
-        <div class="welcome-kicker">PERSONAL AI WORKSPACE</div>
-
-        <h2 class="welcome-heading">
-            A clearer view of<br>
-            <span>your experience.</span>
-        </h2>
+        <h2 class="welcome-heading">What would you like to explore?</h2>
 
         <p class="welcome-description">
-            Ask questions about your skills, projects, education, and
-            professional background.
+            Ask about your skills, projects, education, or experience.
         </p>
 
         <div class="suggestions">
             <button class="suggestion" data-question="Tell me about yourself">
-                <span class="suggestion-symbol">01</span>
-                <span>
-                    <strong>About me</strong>
-                    <small>Summarize my profile</small>
-                </span>
-                <span class="suggestion-arrow">↗</span>
+                <strong>About me</strong>
+                <small>Summarize my profile</small>
             </button>
 
-            <button class="suggestion"
-                data-question="What are my strongest skills?">
-                <span class="suggestion-symbol">02</span>
-                <span>
-                    <strong>My skills</strong>
-                    <small>Identify my strengths</small>
-                </span>
-                <span class="suggestion-arrow">↗</span>
+            <button class="suggestion" data-question="What are my strongest skills?">
+                <strong>My skills</strong>
+                <small>Identify my strengths</small>
             </button>
 
             <button class="suggestion" data-question="Explain my projects">
-                <span class="suggestion-symbol">03</span>
-                <span>
-                    <strong>My projects</strong>
-                    <small>Explore my work</small>
-                </span>
-                <span class="suggestion-arrow">↗</span>
+                <strong>My projects</strong>
+                <small>Walk through my work</small>
             </button>
 
             <button class="suggestion"
                 data-question="Help me prepare for an interview using my resume">
-                <span class="suggestion-symbol">04</span>
-                <span>
-                    <strong>Interview prep</strong>
-                    <small>Practice from my resume</small>
-                </span>
-                <span class="suggestion-arrow">↗</span>
+                <strong>Interview prep</strong>
+                <small>Practice with my resume</small>
             </button>
         </div>
     `;
@@ -155,14 +151,13 @@ function renderWelcome() {
     welcome.querySelectorAll(".suggestion").forEach(button => {
         button.addEventListener("click", () => {
             questionInput.value = button.dataset.question || "";
-            questionInput.focus();
             questionInput.dispatchEvent(new Event("input"));
             chatForm.requestSubmit();
         });
     });
 }
 
-/* Markdown rendering with tables and code blocks. */
+/* Markdown rendering */
 function renderMarkdown(input) {
     const source = String(input ?? "").replace(/\r\n/g, "\n");
     const codeBlocks = [];
@@ -172,9 +167,11 @@ function renderMarkdown(input) {
         /```([a-zA-Z0-9_+#.-]*)[ \t]*\n?([\s\S]*?)```/g,
         (_, language, code) => {
             const index = codeBlocks.length;
+
             codeBlocks.push(
                 `<pre><div class="code-header">${escapeHTML(language || "Code")}</div><code>${code.trimEnd()}</code></pre>`
             );
+
             return `\n%%CODE${index}%%\n`;
         }
     );
@@ -255,9 +252,11 @@ function renderMarkdown(input) {
             output.push(`
                 <div class="table-wrapper">
                     <table class="markdown-table">
-                        <thead><tr>${headers.map(cell =>
-                            `<th>${inline(cell)}</th>`
-                        ).join("")}</tr></thead>
+                        <thead>
+                            <tr>${headers.map(cell =>
+                                `<th>${inline(cell)}</th>`
+                            ).join("")}</tr>
+                        </thead>
                         <tbody>${rows.map(row => `
                             <tr>${row.map(cell =>
                                 `<td>${inline(cell)}</td>`
@@ -266,6 +265,7 @@ function renderMarkdown(input) {
                     </table>
                 </div>
             `);
+
             continue;
         }
 
@@ -293,6 +293,7 @@ function renderMarkdown(input) {
             flushParagraph();
 
             const type = unordered ? "ul" : "ol";
+
             if (listType && listType !== type) flushList();
             if (!listType) listType = type;
 
@@ -313,16 +314,12 @@ function renderMarkdown(input) {
     );
 }
 
+/* Message rendering */
 function addMessage(text, role, save = true) {
     $("welcome")?.remove();
 
     const row = document.createElement("div");
     row.className = `message-row ${role}`;
-
-    const avatar = document.createElement("div");
-    avatar.className = "message-avatar";
-    avatar.textContent = role === "user" ? "Y" : "R";
-    avatar.setAttribute("aria-hidden", "true");
 
     const content = document.createElement("div");
     content.className = "message-content";
@@ -341,7 +338,7 @@ function addMessage(text, role, save = true) {
     }
 
     content.append(meta, bubble);
-    row.append(avatar, content);
+    row.appendChild(content);
     messages.appendChild(row);
 
     scrollToBottom();
@@ -369,10 +366,6 @@ function addTypingIndicator() {
     const row = document.createElement("div");
     row.className = "message-row assistant";
 
-    const avatar = document.createElement("div");
-    avatar.className = "message-avatar";
-    avatar.textContent = "R";
-
     const content = document.createElement("div");
     content.className = "message-content";
 
@@ -385,7 +378,7 @@ function addTypingIndicator() {
     bubble.textContent = "Thinking…";
 
     content.append(meta, bubble);
-    row.append(avatar, content);
+    row.appendChild(content);
     messages.appendChild(row);
 
     scrollToBottom();
@@ -399,7 +392,9 @@ async function readResponse(response) {
         try {
             const data = await response.json();
             message = data.detail || data.message || message;
-        } catch {}
+        } catch {
+            // The server may return a non-JSON error.
+        }
 
         throw new Error(message);
     }
@@ -407,14 +402,24 @@ async function readResponse(response) {
     return response.json();
 }
 
+/* Chat session management */
 function renderSessionList() {
     sessionList.replaceChildren();
 
+    if (!sessions.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-sessions";
+        empty.textContent = "Your conversations will appear here.";
+        sessionList.appendChild(empty);
+        return;
+    }
+
     sessions
         .slice()
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
         .forEach(session => {
             const button = document.createElement("button");
+            button.type = "button";
             button.className = "session-item";
             button.classList.toggle("active", session.id === activeSessionId);
             button.textContent = session.title || "New chat";
@@ -446,14 +451,24 @@ function displaySession(session) {
 async function createSession() {
     if (busy) return;
 
+    if (!resumeUploaded) {
+        showOnboarding();
+        onboardingStatus.textContent = "Upload your resume before starting a chat.";
+        onboardingStatus.className = "onboarding-status";
+        return;
+    }
+
     newChatBtn.disabled = true;
 
     try {
-        const response = await fetch(`${API}/new-chat`, { method: "POST" });
+        const response = await fetch(`${API}/new-chat`, {
+            method: "POST"
+        });
+
         const data = await readResponse(response);
 
         if (!data.session_id) {
-            throw new Error("Backend did not return a session ID.");
+            throw new Error("The backend did not return a session ID.");
         }
 
         const session = {
@@ -482,7 +497,7 @@ async function createSession() {
 function switchSession(id) {
     if (busy || !resumeUploaded) return;
 
-    const session = sessions.find(s => s.id === id);
+    const session = sessions.find(item => item.id === id);
     if (!session) return;
 
     activeSessionId = id;
@@ -492,55 +507,14 @@ function switchSession(id) {
     showChat();
 }
 
-async function deleteSession(id) {
-    if (busy) return;
-
-    sessions = sessions.filter(session => session.id !== id);
-
-    if (activeSessionId === id) {
-        activeSessionId = sessions[0]?.id || null;
-    }
-
-    saveSessions();
-    renderSessionList();
-
-    if (activeSession()) {
-        displaySession(activeSession());
-        showChat();
-    } else if (resumeUploaded) {
-        await createSession();
-    }
-}
-
-async function resetCurrentSession() {
-    const session = activeSession();
-    if (!session) return;
-
-    const response = await fetch(`${API}/reset-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: session.id })
-    });
-
-    await readResponse(response);
-
-    session.messages = [];
-    session.title = "New chat";
-    session.updatedAt = Date.now();
-
-    saveSessions();
-    renderSessionList();
-    displaySession(session);
-    showChat();
-}
-
 function setProfile(info = {}) {
     resumeName.textContent = info.name || "Your profile";
     profileSubtitle.textContent = info.email || "Email unavailable";
-    profileBadge.textContent = "READY";
+    profileBadge.textContent = "Ready";
     profileBadge.classList.add("ready");
 }
 
+/* Resume upload */
 async function uploadResume(file) {
     if (busy) return;
 
@@ -551,7 +525,7 @@ async function uploadResume(file) {
     }
 
     if (!file.size) {
-        onboardingStatus.textContent = "The file is empty.";
+        onboardingStatus.textContent = "The selected file is empty.";
         onboardingStatus.className = "onboarding-status error";
         return;
     }
@@ -565,6 +539,7 @@ async function uploadResume(file) {
     busy = true;
     chooseResumeBtn.disabled = true;
     newChatBtn.disabled = true;
+
     onboardingStatus.className = "onboarding-status";
     onboardingStatus.textContent = "Uploading and reading your resume…";
 
@@ -578,13 +553,20 @@ async function uploadResume(file) {
         });
 
         const data = await readResponse(response);
+
         resumeUploaded = true;
         setProfile(data.resume_info || {});
 
         sessions = [];
         activeSessionId = null;
-        localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(ACTIVE_KEY);
+
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(ACTIVE_KEY);
+        } catch (error) {
+            console.warn("Could not clear saved sessions:", error);
+        }
+
         renderSessionList();
 
         onboardingStatus.textContent = "Resume processed successfully.";
@@ -594,9 +576,11 @@ async function uploadResume(file) {
         await createSession();
     } catch (error) {
         resumeUploaded = false;
+
         onboardingStatus.textContent =
             error.message || "Upload failed. Please try again.";
         onboardingStatus.className = "onboarding-status error";
+
         setStatus(uploadStatus, onboardingStatus.textContent, "error");
     } finally {
         busy = false;
@@ -611,7 +595,7 @@ chooseResumeBtn.addEventListener("click", () => {
 });
 
 resumeFile.addEventListener("change", () => {
-    const file = resumeFile.files[0];
+    const file = resumeFile.files?.[0];
     if (file) uploadResume(file);
 });
 
@@ -636,6 +620,7 @@ dropZone.addEventListener("drop", event => {
 
 newChatBtn.addEventListener("click", createSession);
 
+/* Chat request and streamed response */
 chatForm.addEventListener("submit", async event => {
     event.preventDefault();
 
@@ -655,7 +640,8 @@ chatForm.addEventListener("submit", async event => {
     sendBtn.disabled = true;
     newChatBtn.disabled = true;
     chooseResumeBtn.disabled = true;
-    chatStatus.textContent = "Generating response";
+
+    setStatus(chatStatus, "Generating response");
 
     showChat();
     addMessage(question, "user");
@@ -680,32 +666,27 @@ chatForm.addEventListener("submit", async event => {
 
             try {
                 const error = await response.json();
-                message = error.detail || message;
-            } catch {}
+                message = error.detail || error.message || message;
+            } catch {
+                // The response might not be JSON.
+            }
 
             throw new Error(message);
         }
 
         if (!response.body) {
-            throw new Error("The server did not return a readable stream.");
+            throw new Error("The server returned no readable response stream.");
         }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let answer = "";
-        let firstChunk = true;
 
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
 
             answer += decoder.decode(value, { stream: true });
-
-            if (firstChunk) {
-                bubble.innerHTML = "";
-                firstChunk = false;
-            }
-
             bubble.innerHTML = renderMarkdown(answer);
             scrollToBottom();
         }
@@ -720,19 +701,15 @@ chatForm.addEventListener("submit", async event => {
             session.updatedAt = Date.now();
             saveSessions();
         }
-
-        scrollToBottom();
     } catch (error) {
         bubble.textContent = `Something went wrong: ${error.message}`;
+        bubble.classList.add("error-message");
     } finally {
         busy = false;
         sendBtn.disabled = false;
         newChatBtn.disabled = false;
         chooseResumeBtn.disabled = false;
-        questionInput.focus();
         renderSessionList();
-
-        // Verify that the backend is reachable again after a chat request.
         checkBackend();
     }
 });
@@ -750,11 +727,12 @@ questionInput.addEventListener("input", () => {
         `${Math.min(questionInput.scrollHeight, 150)}px`;
 });
 
-/* Wake Render as soon as the website opens and retry if unavailable. */
+/* Wake Render on page load and retry failed health checks. */
 async function checkBackend() {
     if (healthCheckInProgress) return;
 
     healthCheckInProgress = true;
+
     setStatus(
         chatStatus,
         "Waking up server… this may take up to a minute."
